@@ -6,23 +6,20 @@ email: lesha.edakin@gmail.com
 
 Структура:
 
-dashboard_online_store/
-│
-├── data/               # Исходные данные (CSV)
-│ ├── items.csv         # Товары 
-│ ├── orders.csv        # Заказы
-│ └── users.csv         # Клиенты 
-│
-├── src/                # Модули с функциями
-│ ├── __pycache__       # Инициализация пакета
-│ ├── data_loader.py    # Загрузка CSV-файлов
-│ ├── data_merge.py     # Объединение таблиц
-│ └── data_cleaner.py   # Очистка данных (пропуски, проверка типов)
-│
-├── app.py              # Главный файл дашборда Streamlit
-├── requirements.txt    # Список зависимостей
-├── .gitignore          # Исключения для Git
-└── README.md           # Этот файл
+dashboard_online_store/  
+- data/               # Исходные данные (CSV)
+  - items.csv         # Товары
+  - orders.csv        # Заказы
+  - users.csv         # Клиенты
+- src/                # Модули с функциями
+  - __pycache__       # Инициализация пакета
+  - data_loader.py    # Загрузка CSV-файлов
+  - data_merge.py     # Объединение таблиц
+  - data_cleaner.py   # Очистка данных (пропуски, проверка типов)
+- app.py              # Главный файл дашборда Streamlit
+- requirements.txt    # Список зависимостей
+- .gitignore          # Исключения для Git
+- README.md           # Этот файл
 
 Запуск дашборда локально на вашем ПК:
 streamlit run app.py
