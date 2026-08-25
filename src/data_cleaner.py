@@ -10,9 +10,11 @@ def handle_missing_values(df):
     """
     total_missing = df.isnull().sum().sum()
     if total_missing == 0:
+        print(f"")
         print("В объединенной таблице пропусков нет")
         return df
     else:
+        print(f"")
         print(f"В объединенной таблице пропусков: {total_missing}")
 
         rows_before = len(df)
@@ -25,38 +27,46 @@ def handle_missing_values(df):
         print(f"Осталось строк: {rows_after}")
         return df_clean
 
-def check_data_types(df):
+def check_and_fix_data_types(df):
     """
-    Проверяет типы данных в ключевых столбцах.
-    Выводит сообщения об ошибках, если тип не соответствует ожидаемому.
-    Возвращает количество столбцов с некорректным типом.
+    Проверяет и исправляет типы данных в датафрейме.
+
+    Порядок действий:
+    1. Проверяет текущие типы
+    2. Приводит к нужным типам (int, float, datetime)
+    3. Выводит отчёт об исправлениях
+    
+    Returns: DataFrame с исправленными типами
     """
+    df = df.copy()  # работаем с копией, чтобы не изменять оригинал
     errors = 0
 
     # Целочисленные столбцы
     int_columns = ['order_id', 'user_id', 'item_id', 'quantity']
     for col in int_columns:
         if df[col].dtype != np.int64:
-            print(f"Ошибка: {col} должен быть int64")
+            df[col] = df[col].astype(np.int64)
             errors += 1
 
     # Вещественные столбцы
     float_columns = ['price_per_unit', 'base_price']
     for col in float_columns:
         if df[col].dtype != np.float64:
-            print(f"Ошибка: {col} должен быть float64")
+            df[col] = df[col].astype(np.int64)
             errors += 1
 
     # Столбцы с датами
     datetime_columns = ['order_date', 'registration_date']
     for col in datetime_columns:
         if df[col].dtype != 'datetime64[us]':
-            print(f"Ошибка: {col} должен быть datetime64[us]")
+            df[col] = pd.to_datetime(df[col])
             errors += 1
 
     if errors == 0:
-        print("Типы данных в столбцах корректны")
+        print(f"")
+        print("Все типы данных корректны, исправления не требуются.")
     else:
-        print(f"Есть столбцы с некорректным типом данных: {errors} шт")
+        print(f"")
+        print(f"Найдено и исправленно столбцов с некорректным типом: {errors}")
 
-    return errors
+    return df
