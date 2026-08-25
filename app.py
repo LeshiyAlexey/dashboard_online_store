@@ -2,13 +2,14 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 import sys
 import os
 from pathlib import Path
 from src.data_loader import load_all_data
 from src.data_merge import merge_all_data
-from src.data_cleaner import handle_missing_values, check_data_types
+from src.data_cleaner import handle_missing_values, check_and_fix_data_types
 
 project_root = Path(__file__).resolve().parent
 if str(project_root) not in sys.path:
@@ -16,63 +17,85 @@ if str(project_root) not in sys.path:
 
 # === 1. ЗАГРУЗКА ДАННЫХ ===
 items_data, orders_data, users_data = load_all_data()
-print(f"Загружено записей о товарах: {len(items_data)}")
-print(f"Загружено записей о заказах: {len(orders_data)}")
-print(f"Загружено записей о клиентах: {len(users_data)}")
-print(f"")
 
 # === 2. ОБЬЕДИНЕНИЕ ДАННЫХ ===
-df = merge_all_data(items_data, orders_data, users_data)
+df_merged = merge_all_data(items_data, orders_data, users_data)
 
 # === 3. ОЧИСТКА ДАННЫХ ===
-data_merged = handle_missing_values(df)   # обработка пропусков
-type_errors = check_data_types(df)        # проверка типов
+df_merged = handle_missing_values(df_merged)
+df_clean = check_and_fix_data_types(df_merged)
 
 # === 4. СОЗДАНИЕ ДАШБОРДА ===
 st.set_page_config(layout="wide")
 st.title("Дашборд продаж")
 
-# Получение уникальных значений для дат, сегментов и категорий
-date_options = ["Все даты"] + list(df['order_date'].unique())
-segment_options = ["Все сегменты"] + list(df['user_segment'].unique())
-category_options = ["Все категории"] + list(df['category'].unique())
-
+# Подготовка опций для фильтров
+min_date = df_clean['order_date'].min().date()
+max_date = df_clean['order_date'].max().date()
+segment_options = list(df_clean['user_segment'].unique())
+category_options = list(df_clean['category'].unique())
 
 with st.sidebar:
-    # Дата
-    selected_date = st.selectbox("Дата заказа", date_options)
-    # Сегмент клиента
-    selected_segment = st.selectbox("Сегмент клиента", segment_options)
-    # Категория товара
-    selected_category = st.selectbox("Категория товара", category_options)
+    st.header("Фильтры")
+    
+    # Фильтр по диапазону дат
+    st.subheader("Диапазон дат")
+    date_range = st.date_input(
+        "Выберите даты",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
+    )
+    
+    # Фильтр по сегментам клиентов
+    st.subheader("Сегменты клиентов")
+    selected_segments = st.multiselect(
+        "Выберите сегменты",
+        options=segment_options,
+        default=segment_options
+    )
+    
+    # Фильтр по категориям товаров
+    st.subheader("Категории товаров")
+    selected_categories = st.multiselect(
+        "Выберите категории",
+        options=category_options,
+        default=category_options
+    )
 
+# === ПРИМЕНЕНИЕ ФИЛЬТРОВ ===
+filtered_df = df_clean.copy()
 
-# 1. Фильтр по дате
-if selected_date == "Все даты":
-    filtered_df = df
-else:
-    filtered_df = df[df['order_date'] == selected_date]
+# 1. Фильтр по диапазону дат
+if len(date_range) == 2:
+    start_date, end_date = date_range
+    start_datetime = pd.Timestamp(start_date)
+    end_datetime = pd.Timestamp(end_date) + pd.Timedelta(days=1)
+    
+    filtered_df = filtered_df[
+        (filtered_df['order_date'] >= start_datetime) & 
+        (filtered_df['order_date'] < end_datetime)
+    ]
 
-# 2. Фильтр по сегменту
-if selected_segment != "Все сегменты":
-    filtered_df = filtered_df[filtered_df['user_segment'] == selected_segment]
+# 2. Фильтр по сегментам клиентов
+filtered_df = filtered_df[filtered_df['user_segment'].isin(selected_segments)]
 
-# 3. Фильтр по категории
-if selected_category != "Все категории":
-    filtered_df = filtered_df[filtered_df['category'] == selected_category]
+# 3. Фильтр по категориям товаров
+filtered_df = filtered_df[filtered_df['category'].isin(selected_categories)]
 
-
+# === 5. ВКЛАДКИ ===
 tab_raw, tab_kpi, tab_sum = st.tabs(["Сырые данные", "Отчет", "Аналитические выводы"])
 
 with tab_raw:
     st.subheader("Таблица заказов")
     st.dataframe(filtered_df)
 
+# === 6. РАСЧЁТ МЕТРИК И ГРАФИКОВ ===
 # Расчет метрик
-total_orders = len(filtered_df)                                                     # Общее количество заказов
-total_revenue = (filtered_df['price_per_unit'] * filtered_df['quantity']).sum()     # Общая выручка
-unique_users = filtered_df['user_id'].nunique()                                     # Количество уникальных пользователей
-avg_check = total_revenue/total_orders                                              # Средний чек
+total_orders = len(filtered_df)
+total_revenue = (filtered_df['price_per_unit'] * filtered_df['quantity']).sum()
+unique_users = filtered_df['user_id'].nunique()
+avg_check = total_revenue / total_orders if total_orders > 0 else 0
 
 # Расчет топ-10 товаров по выручке
 filtered_df['revenue'] = filtered_df['quantity'] * filtered_df['price_per_unit']
@@ -80,31 +103,52 @@ product_revenue = filtered_df.groupby('item_name')['revenue'].sum().reset_index(
 product_revenue.columns = ['Товар', 'Выручка']
 top10 = product_revenue.sort_values('Выручка', ascending=False).head(10)
 
-# Построение горизонтальной столбчатой диаграмму для топ-10
-fig_bar_chart, ax = plt.subplots(figsize=(10, 6))
-bars = ax.barh(top10['Товар'], top10['Выручка'], color='skyblue')
-ax.set_xlabel('Выручка')
-ax.set_title('Топ-10 товаров по выручке')
-ax.invert_yaxis()  # чтобы самый продаваемый был сверху
+# Построение горизонтальной столбчатой диаграммы для топ-10 (Plotly)
+fig_bar_chart = px.bar(
+    top10,
+    x='Выручка',
+    y='Товар',
+    orientation='h',
+    title='Топ-10 товаров по выручке',
+    labels={'Выручка': 'Выручка, ₽', 'Товар': 'Товар'},
+    color='Выручка',
+    color_continuous_scale='Blues',
+    text='Выручка'
+)
+fig_bar_chart.update_layout(
+    yaxis={'categoryorder': 'total ascending'},
+    showlegend=False,
+    height=500
+)
+fig_bar_chart.update_traces(
+    texttemplate='%{text:.2f}',
+    textposition='outside'
+)
 
-# Расчет выручки по категортиям товаров
+# Расчет выручки по категориям товаров
 category_revenue = filtered_df.groupby('category')['revenue'].sum().reset_index()
 category_revenue = category_revenue.sort_values('revenue', ascending=False)
 
-# Построение круговой диаграммы: доля каждой категории в общей выручке
-fig_pie_chart, ax = plt.subplots(figsize=(10, 8))
-wedges, texts, autotexts = ax.pie(
-    category_revenue['revenue'],
-    labels=None,                # убираем подписи с диаграммы
-    autopct='%1.0f%%',          # проценты можно оставить
-    startangle=90,
-    pctdistance=0.75            # чуть дальше от центра
+# Построение круговой диаграммы (Plotly)
+fig_pie_chart = px.pie(
+    category_revenue,
+    values='revenue',
+    names='category',
+    title='Выручка по категориям товаров',
+    hole=0.4,
+    color_discrete_sequence=px.colors.qualitative.Set3
 )
-ax.legend(wedges, category_revenue['category'], title="Категории", loc="center left", bbox_to_anchor=(1, 0, 0.5, 1))
-ax.set_title('Выручка по категориям товаров')
-plt.tight_layout()
+fig_pie_chart.update_traces(
+    textposition='inside',
+    textinfo='percent+label',
+    hovertemplate='<b>%{label}</b><br>Выручка: %{value:.2f} ₽<br>Доля: %{percent}'
+)
+fig_pie_chart.update_layout(
+    height=500,
+    showlegend=True
+)
 
-# Данные, сгруппированные по дням недели для анализа
+# Данные, сгруппированные по дням недели
 df_orders = filtered_df.copy()
 df_orders['weekday'] = df_orders['order_date'].dt.dayofweek
 orders_by_weekday = df_orders.groupby('weekday').size().reset_index(name='order_count')
@@ -112,44 +156,51 @@ weekday_names = ['Понедельник', 'Вторник', 'Среда', 'Че
 orders_by_weekday['weekday_name'] = orders_by_weekday['weekday'].apply(lambda x: weekday_names[x])
 orders_by_weekday = orders_by_weekday.sort_values('weekday')
 
-# Построение графика линейной зависимости кол-ва заказов от дней недели
-fig_lin, ax = plt.subplots(figsize=(10, 5))
-ax.plot(
-    orders_by_weekday['weekday_name'],
-    orders_by_weekday['order_count'],
-    marker='o',          # маркер в виде кружочков
-    linestyle='-',       # сплошная линия
-    color='green',
-    linewidth=2,
-    markersize=8
+# Построение линейного графика (Plotly)
+fig_line = px.line(
+    orders_by_weekday,
+    x='weekday_name',
+    y='order_count',
+    title='Зависимость количества заказов от дня недели',
+    labels={'weekday_name': 'День недели', 'order_count': 'Количество заказов'},
+    markers=True,
+    line_shape='linear'
 )
-ax.set_xlabel('День недели')
-ax.set_ylabel('Количество заказов')
-ax.set_title('Зависимость количества заказов от дня недели')
-ax.grid(True, alpha=0.3)  # лёгкая сетка
-plt.xticks(rotation=45)   # поворот подписей оси X
-plt.tight_layout()
+fig_line.update_traces(
+    line=dict(color='green', width=3),
+    marker=dict(size=10, color='darkgreen'),
+    hovertemplate='<b>%{x}</b><br>Заказов: %{y}'
+)
+fig_line.update_layout(
+    height=500,
+    xaxis_title='День недели',
+    yaxis_title='Количество заказов',
+    hovermode='x unified'
+)
 
+# === 7. ВКЛАДКА "ОТЧЁТ" ===
 with tab_kpi:
     st.subheader("Ключевые показатели")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Общее количество заказов", total_orders)
     with col2:
-        st.metric("Общая выручка", f"{total_revenue:.2f} ₽")  # форматирование с разделителями
+        st.metric("Общая выручка", f"{total_revenue:,.2f} ₽")
     with col3:
         st.metric("Уникальные пользователи", unique_users)
     with col4:
-        st.metric("Средний чек", f"{avg_check:.2f} ₽")
+        st.metric("Средний чек", f"{avg_check:,.2f} ₽")
 
     st.subheader("Топ-10 товаров по выручке")
-    st.pyplot(fig_bar_chart)
+    st.plotly_chart(fig_bar_chart, use_container_width=True)
+    
     st.subheader("Выручка по категориям товаров")
-    st.pyplot(fig_pie_chart)
+    st.plotly_chart(fig_pie_chart, use_container_width=True)
+    
     st.subheader("Зависимость количества заказов от дня недели")
-    st.pyplot(fig_lin)
+    st.plotly_chart(fig_line, use_container_width=True)
 
-
+# === 8. ВКЛАДКА "АНАЛИТИЧЕСКИЕ ВЫВОДЫ" ===
 with tab_sum:
     st.subheader("Аналитические выводы")
     st.markdown("""
